@@ -9,3 +9,7 @@ Add this git repository to your dependencies.
 version = "*"
 git = "https://github.com/waynevanson/stateful-monad-rust"
 ```
+
+## Usage
+
+Please see the trait `Stateful` for more details, for now.
