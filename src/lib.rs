@@ -2,31 +2,31 @@ use core::marker::PhantomData;
 
 /// Allows the construction of computations that hold state; the indexed state monad pattern.
 /// Given an input state of `I`, it can return the value of `A` whilst keeping any changes to the output state as `O`.
-pub trait Stateful<I, O, A>: Sized {
+pub trait Stateful<Input, Output, Value>: Sized {
     /// Given an input state, returns an output state as `O` and the inner value as `A`.
     /// All composable functions are derived from this function.
     ///
     /// To use only `A` or `O`, consider using `evaluate` or `execute` function respectively.
-    fn run(self, state: I) -> (A, O);
+    fn run(self, state: Input) -> (Value, Output);
 
     /// Consumes the input state and returns only the inner value as `A`.
-    fn evaluate(self, state: I) -> A {
+    fn evaluate(self, state: Input) -> Value {
         self.run(state).0
     }
 
     /// Consumes the input state and returns only the output state as `O`.
-    fn execute(self, state: I) -> O {
+    fn execute(self, state: Input) -> Output {
         self.run(state).1
     }
 
     /// Applies a covariant function to `A` that goes from `A` to `B`.
-    fn map<F, B>(self, closure: F) -> Map<Self, F, A>
+    fn map<Function, ValueNext>(self, closure: Function) -> Map<Self, Function, Value>
     where
-        F: FnOnce(A) -> B,
+        Function: FnOnce(Value) -> ValueNext,
     {
         Map {
-            stateful: self,
-            closure,
+            first: self,
+            covariant: closure,
             phantom: PhantomData,
         }
     }
@@ -36,10 +36,13 @@ pub trait Stateful<I, O, A>: Sized {
     /// is used as a parameter for the second.
     ///
     /// This is equivilent to a monadic bind in functional languages.
-    fn and_then<F, U, P, B>(self, kleisli: F) -> AndThen<Self, F, (A, O)>
+    fn and_then<Covariant, Second, SecondOutput, SecondValue>(
+        self,
+        kleisli: Covariant,
+    ) -> AndThen<Self, Covariant, (Value, Output)>
     where
-        U: Stateful<O, P, B>,
-        F: FnOnce(A) -> U,
+        Second: Stateful<Output, SecondOutput, SecondValue>,
+        Covariant: FnOnce(Value) -> Second,
     {
         AndThen {
             stateful: self,
@@ -49,133 +52,171 @@ pub trait Stateful<I, O, A>: Sized {
     }
 
     /// Applies a covariant function to the output state, that goes from `O` to `P`.
-    fn map_state<F, P>(self, closure: F) -> MapState<Self, F, O>
+    fn map_state<Covariant, SecondState>(
+        self,
+        closure: Covariant,
+    ) -> MapState<Self, Covariant, Output>
     where
-        F: FnOnce(O) -> P,
+        Covariant: FnOnce(Output) -> SecondState,
     {
         MapState {
-            stateful: self,
-            closure,
+            first: self,
+            covariant: closure,
             phantom: PhantomData,
         }
     }
 
     /// Applies a contravariant function to the input state that goes from `K` to `I`.
     /// This changes the input state to be `K` instead of `I`,
-    fn contramap_state<F, K>(self, contravariant: F) -> ContramapState<Self, F>
+    fn contramap_state<Covariant, FirstInput>(
+        self,
+        contravariant: Covariant,
+    ) -> ContramapState<Self, Covariant>
     where
-        F: FnOnce(K) -> I,
+        Covariant: FnOnce(FirstInput) -> Input,
     {
         ContramapState {
-            stateful: self,
+            first: self,
             contravariant,
         }
     }
 }
 
-impl<I, O, A, T> Stateful<I, O, A> for T
+impl<FirstInput, SecondInput, FirstValue, Covariant> Stateful<FirstInput, SecondInput, FirstValue>
+    for Covariant
 where
-    T: FnOnce(I) -> (A, O),
+    Covariant: FnOnce(FirstInput) -> (FirstValue, SecondInput),
 {
-    fn run(self, state: I) -> (A, O) {
+    fn run(self, state: FirstInput) -> (FirstValue, SecondInput) {
         self(state)
     }
 }
 
 /// Create a `Stateful` structure given the input type can be cloned.
-pub fn new<I>() -> impl Stateful<I, I, I>
+pub fn new<State>() -> impl Stateful<State, State, State>
 where
-    I: Clone,
+    State: Clone,
 {
-    |state: I| (state.clone(), state)
+    |state: State| (state.clone(), state)
 }
 
-pub fn gets<I, O>(covariant: impl FnOnce(I) -> O) -> impl Stateful<I, O, O>
+pub fn gets<Input, Output>(
+    covariant: impl FnOnce(Input) -> Output,
+) -> impl Stateful<Input, Output, Output>
 where
-    O: Clone,
+    Output: Clone,
 {
-    |state: I| {
+    |state: Input| {
         let output = covariant(state);
         (output.clone(), output)
     }
 }
 
-pub fn gots<I, A>(covariant: impl FnOnce(I) -> A) -> impl Stateful<I, I, A>
+pub fn gots<Input, Value>(
+    covariant: impl FnOnce(Input) -> Value,
+) -> impl Stateful<Input, Input, Value>
 where
-    I: Clone,
+    Input: Clone,
 {
-    |state: I| {
+    |state: Input| {
         let value = covariant(state.clone());
         (value, state)
     }
 }
 
-pub struct Map<T, F, A> {
-    stateful: T,
-    closure: F,
-    phantom: PhantomData<A>,
+pub struct Map<First, Covariant, Phantom> {
+    first: First,
+    covariant: Covariant,
+    phantom: PhantomData<Phantom>,
 }
 
-impl<I, O, B, T, F, A> Stateful<I, O, B> for Map<T, F, A>
+impl<FirstInput, SecondInput, SecondValue, First, Covariant, FirstValue>
+    Stateful<FirstInput, SecondInput, SecondValue> for Map<First, Covariant, FirstValue>
 where
-    T: Stateful<I, O, A>,
-    F: FnOnce(A) -> B,
+    First: Stateful<FirstInput, SecondInput, FirstValue>,
+    Covariant: FnOnce(FirstValue) -> SecondValue,
 {
-    fn run(self, state: I) -> (B, O) {
-        let (a, o) = self.stateful.run(state);
-        let b = (self.closure)(a);
+    fn run(self, state: FirstInput) -> (SecondValue, SecondInput) {
+        let (a, o) = self.first.run(state);
+        let b = (self.covariant)(a);
         (b, o)
     }
 }
 
-pub struct MapState<T, F, O> {
-    stateful: T,
-    closure: F,
-    phantom: PhantomData<O>,
+pub struct MapState<First, Covariant, Phantom> {
+    first: First,
+    covariant: Covariant,
+    phantom: PhantomData<Phantom>,
 }
 
-impl<I, O, P, T, F, A> Stateful<I, P, A> for MapState<T, F, O>
+impl<FirstInput, SecondInput, SecondOutput, First, Function, FirstValue>
+    Stateful<FirstInput, SecondOutput, FirstValue> for MapState<First, Function, SecondInput>
 where
-    T: Stateful<I, O, A>,
-    F: FnOnce(O) -> P,
+    First: Stateful<FirstInput, SecondInput, FirstValue>,
+    Function: FnOnce(SecondInput) -> SecondOutput,
 {
-    fn run(self, state: I) -> (A, P) {
-        let (a, o) = self.stateful.run(state);
-        let p = (self.closure)(o);
+    fn run(self, state: FirstInput) -> (FirstValue, SecondOutput) {
+        let (a, o) = self.first.run(state);
+        let p = (self.covariant)(o);
         (a, p)
     }
 }
 
-pub struct AndThen<T, F, A> {
-    stateful: T,
-    kleisli: F,
-    phantom: PhantomData<A>,
+pub struct AndThen<First, Kleisli, Phantom> {
+    stateful: First,
+    kleisli: Kleisli,
+    phantom: PhantomData<Phantom>,
 }
 
-impl<I, P, A, T, F, O, U, B> Stateful<I, P, B> for AndThen<T, F, (A, O)>
+impl<FirstInput, SecondOutput, FirstValue, First, Kleisli, SecondInput, Second, SecondValue>
+    Stateful<FirstInput, SecondOutput, SecondValue>
+    for AndThen<First, Kleisli, (FirstValue, SecondInput)>
 where
-    T: Stateful<I, O, A>,
-    U: Stateful<O, P, B>,
-    F: FnOnce(A) -> U,
+    First: Stateful<FirstInput, SecondInput, FirstValue>,
+    Second: Stateful<SecondInput, SecondOutput, SecondValue>,
+    Kleisli: FnOnce(FirstValue) -> Second,
 {
-    fn run(self, state: I) -> (B, P) {
+    fn run(self, state: FirstInput) -> (SecondValue, SecondOutput) {
         let (a, o) = self.stateful.run(state);
         (self.kleisli)(a).run(o)
     }
 }
 
-pub struct ContramapState<T, F> {
-    stateful: T,
-    contravariant: F,
+pub struct ContramapState<First, Contravariant> {
+    first: First,
+    contravariant: Contravariant,
 }
 
-impl<I, O, A, K, T, F> Stateful<K, O, A> for ContramapState<T, F>
+impl<Input, Output, Value, PreviousInput, Second, Contravariant>
+    Stateful<PreviousInput, Output, Value> for ContramapState<Second, Contravariant>
 where
-    T: Stateful<I, O, A>,
-    F: FnOnce(K) -> I,
+    Second: Stateful<Input, Output, Value>,
+    Contravariant: FnOnce(PreviousInput) -> Input,
 {
-    fn run(self, state: K) -> (A, O) {
+    fn run(self, state: PreviousInput) -> (Value, Output) {
         let state = (self.contravariant)(state);
-        self.stateful.run(state)
+        self.first.run(state)
+    }
+}
+
+pub struct Apply<First, Second, Phantom> {
+    first: First,
+    second: Second,
+    phantom: PhantomData<Phantom>,
+}
+
+impl<FirstInput, SecondInput, SecondOutput, FirstValue, Covariant, First, Second, SecondValue>
+    Stateful<FirstInput, SecondOutput, SecondValue>
+    for Apply<First, Second, (SecondInput, FirstValue, Covariant)>
+where
+    First: Stateful<FirstInput, SecondInput, Covariant>,
+    Second: Stateful<SecondInput, SecondOutput, FirstValue>,
+    Covariant: FnOnce(FirstValue) -> SecondValue,
+{
+    fn run(self, state: FirstInput) -> (SecondValue, SecondOutput) {
+        let (f, state) = self.first.run(state);
+        let (a, p) = self.second.run(state);
+        let b = f(a);
+        (b, p)
     }
 }
