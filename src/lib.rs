@@ -80,6 +80,18 @@ pub trait Stateful<Input, Output, Value>: Sized {
             contravariant,
         }
     }
+
+    /// Applies a function to a value that are both wrapped in `Stateful`.
+    fn apply<Second, SecondInput, Covariant>(
+        self,
+        second: Second,
+    ) -> Apply<Self, Second, (SecondInput, Value, Covariant)> {
+        Apply {
+            first: self,
+            second,
+            phantom: PhantomData,
+        }
+    }
 }
 
 impl<FirstInput, SecondInput, FirstValue, Covariant> Stateful<FirstInput, SecondInput, FirstValue>
