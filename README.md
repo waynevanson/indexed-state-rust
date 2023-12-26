@@ -70,3 +70,7 @@ fn main() {
     let state = prng_16.execute(input_seed)
 }
 ```
+
+### Caveats
+
+Closures are pure (`FnOnce`). Will consider adding a way where closures are `Fn` so that `run` can be called multiple times on a structure.
