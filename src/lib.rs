@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 /// Allows the construction of computations that hold state; the indexed state monad pattern.
 /// Given an input state of `I`, it can return the value of `A` whilst keeping any changes to the output state as `O`.
-pub trait Stateful<Input, Output, Value>: Sized {
+pub trait IndexedState<Input, Output, Value>: Sized {
     /// Given an input state, returns an output state as `O` and the inner value as `A`.
     /// All composable functions are derived from this function.
     ///
@@ -41,7 +41,7 @@ pub trait Stateful<Input, Output, Value>: Sized {
         kleisli: Covariant,
     ) -> AndThen<Self, Covariant, (Value, Output)>
     where
-        Second: Stateful<Output, SecondOutput, SecondValue>,
+        Second: IndexedState<Output, SecondOutput, SecondValue>,
         Covariant: FnOnce(Value) -> Second,
     {
         AndThen {
@@ -94,8 +94,8 @@ pub trait Stateful<Input, Output, Value>: Sized {
     }
 }
 
-impl<FirstInput, SecondInput, FirstValue, Covariant> Stateful<FirstInput, SecondInput, FirstValue>
-    for Covariant
+impl<FirstInput, SecondInput, FirstValue, Covariant>
+    IndexedState<FirstInput, SecondInput, FirstValue> for Covariant
 where
     Covariant: FnOnce(FirstInput) -> (FirstValue, SecondInput),
 {
@@ -105,7 +105,7 @@ where
 }
 
 /// Create a `Stateful` structure given the input type can be cloned.
-pub fn new<State>() -> impl Stateful<State, State, State>
+pub fn new<State>() -> impl IndexedState<State, State, State>
 where
     State: Clone,
 {
@@ -114,7 +114,7 @@ where
 
 pub fn gets<Input, Output>(
     covariant: impl FnOnce(Input) -> Output,
-) -> impl Stateful<Input, Output, Output>
+) -> impl IndexedState<Input, Output, Output>
 where
     Output: Clone,
 {
@@ -126,7 +126,7 @@ where
 
 pub fn gots<Input, Value>(
     covariant: impl FnOnce(Input) -> Value,
-) -> impl Stateful<Input, Input, Value>
+) -> impl IndexedState<Input, Input, Value>
 where
     Input: Clone,
 {
@@ -143,9 +143,9 @@ pub struct Map<First, Covariant, Phantom> {
 }
 
 impl<FirstInput, SecondInput, SecondValue, First, Covariant, FirstValue>
-    Stateful<FirstInput, SecondInput, SecondValue> for Map<First, Covariant, FirstValue>
+    IndexedState<FirstInput, SecondInput, SecondValue> for Map<First, Covariant, FirstValue>
 where
-    First: Stateful<FirstInput, SecondInput, FirstValue>,
+    First: IndexedState<FirstInput, SecondInput, FirstValue>,
     Covariant: FnOnce(FirstValue) -> SecondValue,
 {
     fn run(self, state: FirstInput) -> (SecondValue, SecondInput) {
@@ -162,9 +162,9 @@ pub struct MapState<First, Covariant, Phantom> {
 }
 
 impl<FirstInput, SecondInput, SecondOutput, First, Function, FirstValue>
-    Stateful<FirstInput, SecondOutput, FirstValue> for MapState<First, Function, SecondInput>
+    IndexedState<FirstInput, SecondOutput, FirstValue> for MapState<First, Function, SecondInput>
 where
-    First: Stateful<FirstInput, SecondInput, FirstValue>,
+    First: IndexedState<FirstInput, SecondInput, FirstValue>,
     Function: FnOnce(SecondInput) -> SecondOutput,
 {
     fn run(self, state: FirstInput) -> (FirstValue, SecondOutput) {
@@ -181,11 +181,11 @@ pub struct AndThen<First, Kleisli, Phantom> {
 }
 
 impl<FirstInput, SecondOutput, FirstValue, First, Kleisli, SecondInput, Second, SecondValue>
-    Stateful<FirstInput, SecondOutput, SecondValue>
+    IndexedState<FirstInput, SecondOutput, SecondValue>
     for AndThen<First, Kleisli, (FirstValue, SecondInput)>
 where
-    First: Stateful<FirstInput, SecondInput, FirstValue>,
-    Second: Stateful<SecondInput, SecondOutput, SecondValue>,
+    First: IndexedState<FirstInput, SecondInput, FirstValue>,
+    Second: IndexedState<SecondInput, SecondOutput, SecondValue>,
     Kleisli: FnOnce(FirstValue) -> Second,
 {
     fn run(self, state: FirstInput) -> (SecondValue, SecondOutput) {
@@ -200,9 +200,9 @@ pub struct ContramapState<First, Contravariant> {
 }
 
 impl<Input, Output, Value, PreviousInput, Second, Contravariant>
-    Stateful<PreviousInput, Output, Value> for ContramapState<Second, Contravariant>
+    IndexedState<PreviousInput, Output, Value> for ContramapState<Second, Contravariant>
 where
-    Second: Stateful<Input, Output, Value>,
+    Second: IndexedState<Input, Output, Value>,
     Contravariant: FnOnce(PreviousInput) -> Input,
 {
     fn run(self, state: PreviousInput) -> (Value, Output) {
@@ -218,11 +218,11 @@ pub struct Apply<First, Second, Phantom> {
 }
 
 impl<FirstInput, SecondInput, SecondOutput, FirstValue, Covariant, First, Second, SecondValue>
-    Stateful<FirstInput, SecondOutput, SecondValue>
+    IndexedState<FirstInput, SecondOutput, SecondValue>
     for Apply<First, Second, (SecondInput, FirstValue, Covariant)>
 where
-    First: Stateful<FirstInput, SecondInput, Covariant>,
-    Second: Stateful<SecondInput, SecondOutput, FirstValue>,
+    First: IndexedState<FirstInput, SecondInput, Covariant>,
+    Second: IndexedState<SecondInput, SecondOutput, FirstValue>,
     Covariant: FnOnce(FirstValue) -> SecondValue,
 {
     fn run(self, state: FirstInput) -> (SecondValue, SecondOutput) {

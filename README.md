@@ -1,4 +1,6 @@
-# `stateful-monad`
+# `indexed_state`
+
+A Rust implementation of the `IndexedState` monad pattern from functional languages like Haskell.
 
 ## Installation
 
@@ -6,8 +8,7 @@ Add this git repository to your dependencies.
 
 ```toml
 [dependencies.stateful]
-version = "*"
-git = "https://github.com/waynevanson/stateful-monad-rust"
+git = "https://github.com/waynevanson/indexed-state-rust"
 ```
 
 ## Usage
